@@ -7,14 +7,16 @@ Real-time Python GUI that:
 - Supports **two-point load cell calibration** (tare + span) with JSON persistence and unit selection
 - Controls a **servo motor** via an **Arduino UNO** over USB serial — manual slider, preset buttons, and automatic waveform sweep
 - Records time/voltage/weight/servo-angle to an **Excel file** (.xlsx) on demand
+- Provides a separate **filter tool** (`filter_tool.py`) for post-processing recordings with a digital Butterworth filter
 
 ## Key files
 | File | Purpose |
 |------|---------|
 | `main.py` | Single-file app — all hardware, UI, calibration, recording, and waveform logic |
+| `filter_tool.py` | Standalone post-processing tool — load xlsx recordings, apply Butterworth filter, save filtered result |
 | `servo_controller/servo_controller.ino` | Arduino sketch — receives angle integers over serial, drives servo on pin 9 |
 | `calibration.json` | Saved calibration (auto-created on first save) |
-| `requirements.txt` | Python dependencies |
+| `requirements.txt` | Python dependencies (includes scipy for filter_tool.py) |
 
 ## Hardware
 - **NI USB-6002 DAQ**
@@ -73,10 +75,38 @@ Starting the waveform disables the manual slider and preset buttons; stopping re
 ### Demo mode
 If `nidaqmx` is not installed or the device is not found, the app runs a synthetic sine + noise signal so the UI, calibration, and waveform can all be tested offline. Serial/Arduino servo still works independently of DAQ mode.
 
+## filter_tool.py
+
+Standalone Tkinter app for post-processing `.xlsx` recordings produced by `main.py`.
+
+### Usage
+```
+python filter_tool.py [recording.xlsx]
+```
+The file argument is optional; a file-open dialog appears if omitted.
+
+### Features
+- **Column selector** — choose any numeric column from the recording (Voltage, Weight, etc.)
+- **Filter types** — Low-pass, High-pass, Band-pass, Band-stop (Butterworth, zero-phase via `filtfilt`)
+- **Filter order** — 1–8 via spinbox
+- **Auto-apply** — re-runs filter automatically as parameters change when checked
+- **Remove DC** — subtracts the column mean before filtering to prevent transient artifacts from large offsets; status bar shows the removed mean value
+- **Invert** — negates the filtered signal (and the displayed original) for sensors wired with reversed polarity
+- **Frequency response plot** — Bode magnitude (dB) with −3 dB reference line, computed via `freqz`
+- **Save** — writes a new `.xlsx` with an added `[filtered]` column alongside the original data
+
+### Implementation notes
+- `HAS_SCIPY` / `SCIPY_ERR`: scipy is imported inside a `try/except`; if missing, applying the filter shows a dialog with the actual import error to help diagnose Python environment mismatches
+- Sample rate (`self._fs`) is detected from median sample interval of the Time column
+- DC removal is applied **before** filtering: `input_sig = raw - np.mean(raw)` — this prevents the filter from producing large transient spikes at the start of the signal
+- Band-pass/Band-stop types show a second cutoff slider (fc_high); single-cutoff types hide it
+- `_schedule_apply()` debounces auto-apply by 250 ms to avoid redundant filter calls while sliders are being dragged
+
 ## Running
 ```
 pip install -r requirements.txt
-python main.py
+python main.py           # main DAQ + servo app
+python filter_tool.py    # post-processing filter tool
 ```
 Upload `servo_controller/servo_controller.ino` to the Arduino UNO via the Arduino IDE before connecting.
 
@@ -97,5 +127,6 @@ Upload `servo_controller/servo_controller.ino` to the Arduino UNO via the Arduin
 - `pyserial` — serial communication with the Arduino UNO
 - `matplotlib` — embedded graphs via `TkAgg` backend
 - `numpy` — statistics, demo signal, calibration averaging
-- `openpyxl` — Excel recording export; optional, recording button warns if absent
+- `openpyxl` — Excel recording export and filtered result save; optional, warns if absent
+- `scipy` — Butterworth filter design and frequency response in `filter_tool.py`; optional in main app
 - `tkinter` — standard library GUI

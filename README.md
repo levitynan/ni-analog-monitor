@@ -16,6 +16,7 @@ and an NI USB-6002 DAQ, with Arduino-driven servo control and waveform sweep.
 - **Waveform sweep** — drive the servo with Sine, Square, Triangle, Sawtooth, or Rev. Sawtooth at adjustable frequency, amplitude, and centre angle
 - **Servo angle graph** — second scrolling plot showing angle vs time
 - **Excel recording** — capture time, voltage, weight, and servo angle to a `.xlsx` file
+- **Filter tool** (`filter_tool.py`) — post-process recordings with a digital Butterworth filter, remove DC offset, invert signal, and save filtered data
 - **Demo mode** — works without NI hardware using a simulated signal
 
 ---
@@ -136,6 +137,33 @@ If the window is closed while recording is active the file is saved automaticall
 
 ---
 
+## Filter tool
+
+`filter_tool.py` is a standalone post-processing tool for recordings made with `main.py`.
+
+```bash
+python filter_tool.py                   # opens file dialog
+python filter_tool.py recording.xlsx    # loads file directly
+```
+
+### Controls
+
+| Control | Description |
+|---------|-------------|
+| Column | Select which data column to filter (Voltage, Weight, etc.) |
+| Type | Low-pass, High-pass, Band-pass, or Band-stop |
+| Order | Filter order 1–8 |
+| Cutoff | Cutoff frequency in Hz; band types show two sliders |
+| Auto | Re-applies the filter automatically as parameters change |
+| Remove DC | Subtracts the signal mean before filtering to avoid transient artifacts |
+| Invert | Negates the filtered signal (useful for reversed-polarity sensors) |
+| Apply | Runs the filter manually when Auto is off |
+| Save filtered | Saves a new `.xlsx` with a `[filtered]` column added |
+
+The lower panel shows the **frequency response** (Bode magnitude) of the current filter settings with a −3 dB reference line.
+
+---
+
 ## Configuration
 
 Edit the constants at the top of `main.py`:
@@ -164,6 +192,7 @@ To find your Arduino port open **Device Manager → Ports (COM & LPT)**.
 | `ModuleNotFoundError: nidaqmx` | `pip install nidaqmx` |
 | `ModuleNotFoundError: serial` | `pip install pyserial` |
 | `ModuleNotFoundError: openpyxl` | `pip install openpyxl` |
+| `ModuleNotFoundError: scipy` | `pip install scipy` — ensure you use the same Python that runs the script |
 | Servo not responding | Check COM port in Device Manager; click Connect again |
 | Servo jitters or makes noise | Ensure servo power comes from an external supply, not Arduino 5V |
 | Weight reads wrong after loading | Re-run calibration with a fresh tare |
