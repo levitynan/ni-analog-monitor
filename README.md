@@ -10,13 +10,14 @@ and an NI USB-6002 DAQ, with Arduino-driven servo control and waveform sweep.
 - **2.5 V reference** held on AO0 for the full session
 - **Dual readout** — raw voltage (V) and calibrated weight side by side
 - **Two-point calibration** (tare + known weight) with auto-save to `calibration.json`
+- **Live tare offset** — zero the weight display at any time without changing calibration
 - **Selectable graph Y-axis** — Voltage, kg, g, lb, oz, or N
 - **Running Min / Max / Avg** (in the active graph unit)
 - **Servo control via Arduino UNO** — manual slider, preset angle buttons (0°/45°/90°/135°/180°)
 - **Waveform sweep** — drive the servo with Sine, Square, Triangle, Sawtooth, or Rev. Sawtooth at adjustable frequency, amplitude, and centre angle
 - **Servo angle graph** — second scrolling plot showing angle vs time
 - **Excel recording** — capture time, voltage, weight, and servo angle to a `.xlsx` file
-- **Filter tool** (`filter_tool.py`) — post-process recordings with a digital Butterworth filter, remove DC offset, invert signal, and save filtered data
+- **Filter tool** (`filter_tool.py`) — post-process recordings with a digital Butterworth filter, zoom/pan plots, analyse dynamic vs quasi-static regions, and export publication-ready images
 - **Demo mode** — works without NI hardware using a simulated signal
 
 ---
@@ -75,6 +76,17 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+---
+
+## Live tare
+
+The weight readout has **Tare** and **Clear tare** buttons below the value display.
+
+- **Tare** — averages the last 10 samples and stores the current weight as the zero offset. A yellow label shows the active offset value.
+- **Clear tare** — resets the offset to zero.
+
+The offset is applied to the weight readout, the scrolling graph, and any Excel recording in progress. It does not change the two-point calibration stored in `calibration.json`.
 
 ---
 
@@ -146,7 +158,7 @@ python filter_tool.py                   # opens file dialog
 python filter_tool.py recording.xlsx    # loads file directly
 ```
 
-### Controls
+### Filter settings
 
 | Control | Description |
 |---------|-------------|
@@ -154,13 +166,41 @@ python filter_tool.py recording.xlsx    # loads file directly
 | Type | Low-pass, High-pass, Band-pass, or Band-stop |
 | Order | Filter order 1–8 |
 | Cutoff | Cutoff frequency in Hz; band types show two sliders |
+| Offset | Constant added to the filtered output; unit label shows the active column |
 | Auto | Re-applies the filter automatically as parameters change |
 | Remove DC | Subtracts the signal mean before filtering to avoid transient artifacts |
 | Invert | Negates the filtered signal (useful for reversed-polarity sensors) |
 | Apply | Runs the filter manually when Auto is off |
 | Save filtered | Saves a new `.xlsx` with a `[filtered]` column added |
 
-The lower panel shows the **frequency response** (Bode magnitude) of the current filter settings with a −3 dB reference line.
+Both the signal plot and the Bode magnitude plot have a **navigation toolbar** for zoom, pan, and view history.
+
+### Signal analysis
+
+The **SIGNAL ANALYSIS** panel identifies dynamic and quasi-static regions in the filtered signal.
+
+| Control | Description |
+|---------|-------------|
+| Window | Smoothing window for the activity measure (seconds) |
+| Threshold | Fraction of peak derivative used to separate dynamic from quasi-static (0–1) |
+| Analyse | Runs the classification and shades regions on the plot |
+| Export image… | Saves a PNG/PDF/SVG of the signal plot with all annotations |
+| Clear | Removes shading and clears the results table |
+
+After clicking **Analyse**:
+- **Yellow shading** marks dynamic regions (signal changing rapidly)
+- **Green shading** marks quasi-static regions (signal settling or holding steady)
+- A results table below shows per-region statistics: t-start, t-end, duration, max, min, mean, std dev, and peak-to-peak
+- A summary line shows the total dynamic and quasi-static time
+
+### Exporting an image
+
+**Export image…** produces a standalone figure file that includes:
+- The signal plot with Original and Filtered lines, region shading, and per-region labels (type + mean)
+- Title showing filename, column, filter type, order, cutoff frequency, sample rate, and offset (if non-zero)
+- A styled analysis table (if Analyse has been run) with colour-coded rows and a summary line
+
+Supported formats: **PNG** (150 dpi), **PDF**, **SVG**.
 
 ---
 

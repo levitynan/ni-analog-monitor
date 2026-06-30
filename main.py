@@ -339,7 +339,8 @@ class App:
         # Calibration
         self._cal = Calibration()
         self._cal.load()
-        self._graph_unit_var = tk.StringVar(value="Voltage")
+        self._graph_unit_var  = tk.StringVar(value="Voltage")
+        self._weight_tare_kg  = 0.0   # live tare offset stored in kg
 
         # Recording
         self._recording    = False
@@ -413,6 +414,20 @@ class App:
         self._w_lbl = tk.Label(wf, textvariable=self._w_var,
                                font=("Courier New", 42, "bold"), fg=MUTED, bg=SURFACE)
         self._w_lbl.pack()
+
+        tr = tk.Frame(wf, bg=SURFACE)
+        tr.pack(pady=(2, 0))
+        tk.Button(tr, text="Tare", command=self._tare_weight,
+                  bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=10, pady=2,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 8)).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(tr, text="Clear tare", command=self._clear_tare,
+                  bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=10, pady=2,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 8)).pack(side=tk.LEFT)
+        self._tare_lbl = tk.Label(tr, text="", font=("Helvetica", 8),
+                                  fg=YELLOW, bg=SURFACE)
+        self._tare_lbl.pack(side=tk.LEFT, padx=(8, 0))
 
     def _build_stats(self) -> None:
         stats = tk.Frame(self.root, bg=BG)
@@ -663,6 +678,25 @@ class App:
             self._w_var.set("not calibrated")
             self._w_lbl.configure(fg=MUTED)
 
+    def _tare_weight(self) -> None:
+        if not self._cal.is_valid():
+            messagebox.showwarning("Not calibrated",
+                                   "Calibrate the load cell before using live tare.")
+            return
+        with self._lock:
+            recent = list(self._voltage_buf)[-10:]
+        if not recent:
+            return
+        v = float(np.mean(recent))
+        w_in_cal = self._cal.to_weight(v)
+        self._weight_tare_kg = w_in_cal / KG_TO_UNIT[self._cal.unit]
+        self._tare_lbl.configure(
+            text=f"tare: {w_in_cal:.4f} {self._cal.unit}", fg=YELLOW)
+
+    def _clear_tare(self) -> None:
+        self._weight_tare_kg = 0.0
+        self._tare_lbl.configure(text="")
+
     # ── Servo / Arduino serial ────────────────────────────────────────────────
 
     def _refresh_ports(self, *_) -> None:
@@ -832,7 +866,11 @@ class App:
                             self._voltage_buf.append(float(v))
                             self._time_buf.append(t)
                             if self._recording:
-                                w = self._cal.to_weight(float(v)) if self._cal.is_valid() else None
+                                if self._cal.is_valid():
+                                    w_tare = self._weight_tare_kg * KG_TO_UNIT[self._cal.unit]
+                                    w = self._cal.to_weight(float(v)) - w_tare
+                                else:
+                                    w = None
                                 self._record_buf.append(
                                     (t - self._record_start, float(v), w, self._servo_angle))
         except Exception as exc:
@@ -850,7 +888,11 @@ class App:
                 self._voltage_buf.append(float(v))
                 self._time_buf.append(t)
                 if self._recording:
-                    w = self._cal.to_weight(float(v)) if self._cal.is_valid() else None
+                    if self._cal.is_valid():
+                        w_tare = self._weight_tare_kg * KG_TO_UNIT[self._cal.unit]
+                        w = self._cal.to_weight(float(v)) - w_tare
+                    else:
+                        w = None
                     self._record_buf.append(
                         (t - self._record_start, float(v), w, self._servo_angle))
             time.sleep(interval)
@@ -870,7 +912,8 @@ class App:
             self._v_var.set(f"{latest:+.4f}")
 
             if self._cal.is_valid():
-                self._w_var.set(f"{self._cal.to_weight(latest):.4f}")
+                w_tare = self._weight_tare_kg * KG_TO_UNIT[self._cal.unit]
+                self._w_var.set(f"{self._cal.to_weight(latest) - w_tare:.4f}")
 
             graph_unit = self._graph_unit_var.get()
             if graph_unit == "Voltage" or not self._cal.is_valid():
@@ -878,7 +921,9 @@ class App:
                 unit_label  = "Voltage (V)"
                 stat_suffix = "V"
             else:
-                plot_data   = [self._cal.to_weight_in_unit(v, graph_unit) for v in voltages]
+                tare_in_unit = self._weight_tare_kg * KG_TO_UNIT[graph_unit]
+                plot_data   = [self._cal.to_weight_in_unit(v, graph_unit) - tare_in_unit
+                               for v in voltages]
                 unit_label  = graph_unit
                 stat_suffix = graph_unit
 
