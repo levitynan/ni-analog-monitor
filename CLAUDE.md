@@ -108,10 +108,13 @@ The file argument is optional; a file-open dialog appears if omitted.
 ### Signal analysis panel
 - **Window** slider — smoothing window for the activity signal (seconds)
 - **Threshold** slider — fraction of normalised peak derivative above which a region is classified as dynamic (0–1)
+- **Min value** entry — regions whose peak value falls below this threshold are excluded from results (noise-floor filtering)
+- **Max regions** entry — keep only the top N regions by peak value; blank means no limit; retained regions are re-sorted chronologically for display
 - **Analyse** button — classifies each sample as dynamic (rapidly changing) or quasi-static (settling/holding) using the smoothed absolute derivative of the filtered signal; draws coloured axvspan shading (yellow = dynamic, green = quasi-static) on the signal plot
 - Results text widget shows a colour-coded table: region #, type, t-start, t-end, duration, max, min, mean, std dev, peak-to-peak; summary line shows total dynamic/quasi-static time
 - **Export image…** — saves a standalone PNG/PDF/SVG containing the signal plot (with shading, region labels showing type + mean, and filter settings in the title) and, if analysis has been run, a styled matplotlib table of all region statistics below it
 - **Clear** — removes shading and clears the results table
+- **?** button — opens a modal scrollable help window with colour-coded sections explaining every metric and control in the analysis panel (Region classification, Time metrics, Amplitude metrics, Analysis controls)
 - Changing filter parameters automatically clears region shading (regions are stale after signal changes)
 
 ### Implementation notes

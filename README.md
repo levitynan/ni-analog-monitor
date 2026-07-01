@@ -183,9 +183,12 @@ The **SIGNAL ANALYSIS** panel identifies dynamic and quasi-static regions in the
 |---------|-------------|
 | Window | Smoothing window for the activity measure (seconds) |
 | Threshold | Fraction of peak derivative used to separate dynamic from quasi-static (0–1) |
+| Min value | Exclude regions whose peak falls below this value (removes noise-floor detections) |
+| Max regions | Keep only the top N regions by peak value; blank keeps all |
 | Analyse | Runs the classification and shades regions on the plot |
 | Export image… | Saves a PNG/PDF/SVG of the signal plot with all annotations |
 | Clear | Removes shading and clears the results table |
+| ? | Opens a help window explaining every metric and analysis control |
 
 After clicking **Analyse**:
 - **Yellow shading** marks dynamic regions (signal changing rapidly)
