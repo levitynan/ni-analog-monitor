@@ -248,6 +248,27 @@ class FilterApp:
                  ).pack(side=tk.LEFT, padx=(4, 2))
         self._thresh_lbl.pack(side=tk.LEFT, padx=(0, 20))
 
+        tk.Label(ctrl, text="Min value:", font=("Helvetica", 9),
+                 fg=TEXT, bg=SURFACE).pack(side=tk.LEFT)
+        self._min_val_var = tk.StringVar(value="0.0")
+        min_entry = tk.Entry(ctrl, textvariable=self._min_val_var, width=8,
+                             bg=BORDER, fg=TEXT, insertbackground=TEXT,
+                             relief=tk.FLAT, font=("Courier New", 9))
+        min_entry.pack(side=tk.LEFT, padx=(4, 16))
+
+        tk.Label(ctrl, text="Max regions:", font=("Helvetica", 9),
+                 fg=TEXT, bg=SURFACE).pack(side=tk.LEFT)
+        self._max_regions_var = tk.StringVar(value="")
+        tk.Entry(ctrl, textvariable=self._max_regions_var, width=5,
+                 bg=BORDER, fg=TEXT, insertbackground=TEXT,
+                 relief=tk.FLAT, font=("Courier New", 9)).pack(side=tk.LEFT, padx=(4, 4))
+        tk.Label(ctrl, text="(blank = all)", font=("Helvetica", 8),
+                 fg=MUTED, bg=SURFACE).pack(side=tk.LEFT, padx=(0, 4))
+
+        tk.Button(ctrl, text="?", command=self._show_metrics_help,
+                  bg=BORDER, fg=MAUVE, relief=tk.FLAT, padx=8, pady=3,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 9, "bold")).pack(side=tk.RIGHT, padx=(4, 0))
         tk.Button(ctrl, text="Clear", command=self._clear_analysis,
                   bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=10, pady=3,
                   activebackground=MUTED, cursor="hand2",
@@ -383,31 +404,48 @@ class FilterApp:
             else:
                 regions.append(r)
 
-        # Draw coloured spans on the signal plot
-        self._clear_analysis_spans()
-        colour_map = {"dynamic": YELLOW, "quasi-static": GREEN}
-        for s, e, rt in regions:
-            span = self._sig_ax.axvspan(
-                time[s], time[e], alpha=0.13, color=colour_map[rt],
-                linewidth=0, zorder=0)
-            self._region_spans.append(span)
-        self._sig_canvas.draw_idle()
-
         # Compute per-region statistics
+        try:
+            min_val = float(self._min_val_var.get())
+        except ValueError:
+            min_val = 0.0
+
         results = []
         for s, e, rt in regions:
             seg = signal[s:e + 1]
+            peak = float(seg.max())
+            if peak < min_val:
+                continue
             results.append({
                 "type":     rt,
                 "t_start":  float(time[s]),
                 "t_end":    float(time[e]),
                 "duration": float(time[e] - time[s]),
-                "max":      float(seg.max()),
+                "max":      peak,
                 "min":      float(seg.min()),
                 "mean":     float(seg.mean()),
                 "std":      float(seg.std()),
                 "peak_pk":  float(seg.max() - seg.min()),
             })
+
+        # Limit to N regions with highest peak value, re-sorted by time
+        try:
+            max_n = int(self._max_regions_var.get())
+            if max_n > 0:
+                results = sorted(results, key=lambda r: r["max"], reverse=True)[:max_n]
+                results = sorted(results, key=lambda r: r["t_start"])
+        except ValueError:
+            pass  # blank or invalid → keep all
+
+        # Redraw only kept regions (spans were drawn before filtering)
+        self._clear_analysis_spans()
+        colour_map2 = {"dynamic": YELLOW, "quasi-static": GREEN}
+        for r in results:
+            span = self._sig_ax.axvspan(
+                r["t_start"], r["t_end"], alpha=0.13,
+                color=colour_map2[r["type"]], linewidth=0, zorder=0)
+            self._region_spans.append(span)
+        self._sig_canvas.draw_idle()
 
         self._last_analysis = results
         self._show_analysis_results(results)
@@ -605,6 +643,102 @@ class FilterApp:
             messagebox.showerror("Export failed", str(exc))
         finally:
             plt.close(fig)
+
+    def _show_metrics_help(self) -> None:
+        win = tk.Toplevel(self.root)
+        win.title("Analysis metrics — help")
+        win.configure(bg=BG)
+        win.geometry("620x560")
+        win.resizable(False, False)
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(win, text="Signal Analysis — Metrics Guide",
+                 font=("Helvetica", 13, "bold"), fg=TEXT, bg=BG).pack(pady=(16, 2))
+        tk.Label(win, text="Definitions for every column shown in the results table.",
+                 font=("Helvetica", 9), fg=MUTED, bg=BG).pack(pady=(0, 10))
+
+        sections = [
+            ("Region classification", MAUVE, [
+                ("Dynamic",
+                 "A region where the signal is changing rapidly. Identified by the smoothed "
+                 "absolute derivative exceeding the Threshold fraction of its peak value. "
+                 "Shown with yellow shading."),
+                ("Quasi-static",
+                 "A region where the signal is settling or holding steady (low rate of change). "
+                 "Shown with green shading."),
+            ]),
+            ("Time metrics", BLUE, [
+                ("t-start (s)",  "Time stamp at the start of the region."),
+                ("t-end (s)",    "Time stamp at the end of the region."),
+                ("Duration (s)", "Length of the region in seconds (t-end − t-start)."),
+            ]),
+            ("Amplitude metrics", GREEN, [
+                ("Max",
+                 "Highest signal value within the region. Used by the Min value filter — "
+                 "regions whose Max is below Min value are excluded."),
+                ("Min",   "Lowest signal value within the region."),
+                ("Mean",  "Arithmetic average of all samples in the region. "
+                          "Indicates the typical load or baseline level."),
+                ("Std Dev",
+                 "Standard deviation of samples in the region. "
+                 "Low Std Dev in a quasi-static region indicates a stable, noise-free hold. "
+                 "High Std Dev in a dynamic region indicates a large or irregular transient."),
+                ("Pk-Pk",
+                 "Peak-to-peak amplitude (Max − Min). Represents the total swing of the signal "
+                 "within the region, regardless of its sign or offset."),
+            ]),
+            ("Analysis controls", YELLOW, [
+                ("Window",      "Smoothing window (seconds) applied to the absolute derivative "
+                                "before thresholding. Larger values merge short bursts of "
+                                "activity into a single dynamic region."),
+                ("Threshold",   "Fraction (0–1) of the peak smoothed derivative used as the "
+                                "dynamic/quasi-static boundary. Lower values classify more of "
+                                "the signal as dynamic."),
+                ("Min value",   "Regions whose peak amplitude is below this value are excluded "
+                                "from the results entirely. Useful for ignoring noise-floor "
+                                "artefacts or unloaded baseline segments."),
+                ("Max regions", "Keeps only the N regions with the highest peak value after "
+                                "all other filters are applied. Leave blank to show all regions."),
+            ]),
+        ]
+
+        canvas = tk.Canvas(win, bg=BG, highlightthickness=0)
+        scroll = tk.Scrollbar(win, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 6), pady=6)
+        canvas.pack(fill=tk.BOTH, expand=True, padx=(12, 0), pady=(0, 6))
+
+        inner = tk.Frame(canvas, bg=BG)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_resize(e):
+            canvas.itemconfig(inner_id, width=e.width)
+        canvas.bind("<Configure>", _on_resize)
+        inner.bind("<Configure>", lambda _: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+
+        for section_title, colour, entries in sections:
+            tk.Label(inner, text=section_title, font=("Helvetica", 10, "bold"),
+                     fg=colour, bg=BG).pack(anchor="w", padx=10, pady=(10, 2))
+            sep = tk.Frame(inner, bg=colour, height=1)
+            sep.pack(fill=tk.X, padx=10, pady=(0, 6))
+
+            for metric, description in entries:
+                row = tk.Frame(inner, bg=SURFACE)
+                row.pack(fill=tk.X, padx=10, pady=2)
+                tk.Label(row, text=metric, font=("Courier New", 9, "bold"),
+                         fg=colour, bg=SURFACE, width=14, anchor="nw",
+                         justify=tk.LEFT).pack(side=tk.LEFT, padx=(8, 6), pady=6)
+                tk.Label(row, text=description, font=("Helvetica", 9),
+                         fg=TEXT, bg=SURFACE, wraplength=430,
+                         justify=tk.LEFT, anchor="nw").pack(
+                    side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8), pady=6)
+
+        tk.Button(win, text="Close", command=win.destroy,
+                  bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=16, pady=4,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 9)).pack(pady=(4, 14))
 
     def _build_statusbar(self) -> None:
         bar = tk.Frame(self.root, bg=BG)
