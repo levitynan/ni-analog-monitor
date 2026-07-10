@@ -117,25 +117,37 @@ While the waveform is running, the manual slider and preset buttons are locked. 
 
 ## Calibration procedure
 
-The app uses two-point linear calibration. Open the dialog with the **Calibrate…** button.
+Two calibration methods are available in the header bar.
 
-### Step 1 — Tare (zero)
-1. Remove all weight from the load cell.
-2. Wait for the voltage reading to stabilise.
-3. Click **Tare / Zero**. The app averages 1 second of samples and saves the zero voltage immediately.
+### Method 1 — Two-point (Calibrate…)
 
-### Step 2 — Set span
-1. Place a **known reference weight** on the load cell.
-2. Enter the exact weight and unit in the dialog.
-3. Wait for the reading to stabilise.
-4. Click **Set Span**. The span voltage and weight are saved immediately.
+Quick calibration using one zero and one span measurement.
 
-Calibration is written to `calibration.json` next to `main.py` and loaded automatically on the next launch.
+1. Remove all weight. Click **Tare / Zero** — averages 1 second of samples.
+2. Apply a known weight, enter the value, click **Set Span**.
 
-### Calibration formula
+Calibration is written to `calibration.json` and loaded automatically on the next launch.
+
 ```
 weight = (voltage − zero_V) / (span_V − zero_V) × known_weight
 ```
+
+### Method 2 — Multi-point linear regression (Multi-pt Cal…)
+
+More accurate calibration using N weights across the full measurement range, following Esposito et al., *Machines* 2021, 9(2), 25.
+
+1. Click **Multi-pt Cal…** in the header.
+2. Select the weight unit.
+3. For each calibration weight:
+   - Apply the weight and wait for the reading to stabilise.
+   - Enter the known weight value.
+   - Click **Capture & Add** — the app averages 1 second of samples.
+4. Add at least 2 points (more = better accuracy). Watch the R² value — aim for ≥ 0.99.
+5. Click **Apply calibration** to save.
+
+The app fits `V = slope × W + intercept` by least-squares regression. R² is shown colour-coded: green (≥ 0.99), yellow (≥ 0.95), red (below). Individual points can be removed with the ✕ button.
+
+Both methods write to the same `calibration.json` file.
 
 ---
 

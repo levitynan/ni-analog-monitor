@@ -48,6 +48,14 @@ Serial writes from the waveform thread and from manual UI controls both call `_s
 - Auto-saved to `calibration.json` immediately on each Tare and Set Span action
 - `Calibration.to_weight_in_unit(voltage, display_unit)` converts through kg as a base: `KG_TO_UNIT` dict
 
+### Multi-point calibration (`MultiPointCalibrationDialog`)
+Static calibration with least-squares linear regression, following the method in Esposito et al., *Machines* 2021, 9(2), 25 (DOI: 10.3390/machines9020025).
+- User applies N known weights and clicks **Capture & Add** at each; the dialog averages `CAL_AVG_SAMPLES` voltage readings per point
+- `numpy.polyfit(weights, voltages, 1)` fits `V = slope × W + intercept`; R² is shown colour-coded (green ≥ 0.99, yellow ≥ 0.95, red below)
+- **Apply calibration** maps the result to the existing `Calibration` dataclass: `zero_v = intercept`, `span_v = intercept + slope`, `known_weight = 1.0` — so `to_weight(V) = (V − intercept) / slope` with no dataclass changes required
+- Opened via the **Multi-pt Cal…** button in the header (green); existing **Calibrate…** (yellow) still opens the two-point dialog
+- Points can be removed individually (✕ button) or all cleared; regression updates live after every add/remove
+
 ### Live tare offset
 `self._weight_tare_kg` (float, default 0.0) is a runtime offset stored in kg.
 - **Tare** button in the weight readout: averages the last 10 voltage samples, converts to the calibration unit, stores as kg. Yellow label shows the active offset.

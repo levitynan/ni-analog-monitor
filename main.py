@@ -317,6 +317,213 @@ class CalibrationDialog(tk.Toplevel):
         self.after(3000, lambda: self._status_lbl.configure(text=""))
 
 
+# ── Multi-point calibration dialog ─────────────────────────────────────────
+
+class MultiPointCalibrationDialog(tk.Toplevel):
+    """Static multi-point calibration with least-squares linear regression.
+
+    Method from Esposito et al., Machines 2021, 9(2), 25.
+    Apply N known weights, capture voltage at each, fit V = slope × W + intercept.
+    Result maps to existing Calibration fields: zero_v=intercept, span_v=intercept+slope,
+    known_weight=1.0 so that to_weight(V) = (V - intercept) / slope.
+    """
+
+    def __init__(self, parent: tk.Tk, app: "App") -> None:
+        super().__init__(parent)
+        self._app = app
+        self._points: list[tuple[float, float]] = []  # [(weight, voltage), ...]
+        self._slope: Optional[float] = None
+        self._intercept: Optional[float] = None
+        self.title("Multi-point Calibration")
+        self.configure(bg=BG)
+        self.geometry("560x520")
+        self.resizable(True, True)
+        self.transient(parent)
+        self.grab_set()
+        self._build()
+
+    def _build(self) -> None:
+        tk.Label(self, text="Multi-point Calibration",
+                 font=("Helvetica", 14, "bold"), fg=TEXT, bg=BG).pack(pady=(16, 0))
+        tk.Label(self,
+                 text="Apply N known weights and capture the voltage at each.\n"
+                      "A least-squares fit  V = slope × W + intercept  is computed (Esposito et al., 2021).",
+                 font=("Helvetica", 8), fg=MUTED, bg=BG, justify="center").pack(pady=(2, 10))
+
+        # Unit selector
+        ur = tk.Frame(self, bg=BG)
+        ur.pack(fill=tk.X, padx=20, pady=(0, 6))
+        tk.Label(ur, text="Unit:", font=("Helvetica", 9), fg=TEXT, bg=BG).pack(side=tk.LEFT)
+        self._unit_var = tk.StringVar(value=self._app._cal.unit or "kg")
+        ttk.Combobox(ur, textvariable=self._unit_var, values=CAL_UNITS,
+                     width=6, state="readonly").pack(side=tk.LEFT, padx=(6, 0))
+        self._unit_var.trace_add("write", lambda *_: self._rebuild_table())
+
+        # Input row
+        inp = tk.Frame(self, bg=SURFACE)
+        inp.pack(fill=tk.X, padx=20, pady=(0, 4))
+        tk.Label(inp, text="Known weight:", font=("Helvetica", 9),
+                 fg=TEXT, bg=SURFACE).pack(side=tk.LEFT, padx=(10, 4), pady=8)
+        self._weight_var = tk.StringVar()
+        tk.Entry(inp, textvariable=self._weight_var, width=10,
+                 bg=BORDER, fg=TEXT, insertbackground=TEXT,
+                 relief=tk.FLAT, font=("Courier New", 11)).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(inp, text="Capture & Add", command=self._add_point,
+                  bg=GREEN, fg=BG, relief=tk.FLAT, padx=10, pady=4,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 8, "bold")).pack(side=tk.LEFT)
+        self._capture_lbl = tk.Label(inp, text="", font=("Helvetica", 8),
+                                     fg=MUTED, bg=SURFACE)
+        self._capture_lbl.pack(side=tk.LEFT, padx=(8, 0))
+
+        # Points table header
+        tbl_outer = tk.Frame(self, bg=SURFACE)
+        tbl_outer.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 4))
+        hdr = tk.Frame(tbl_outer, bg=BORDER)
+        hdr.pack(fill=tk.X)
+        for text, width in (("#", 4), ("Weight", 16), ("Voltage (V)", 16), ("", 4)):
+            tk.Label(hdr, text=text, font=("Courier New", 8, "bold"),
+                     fg=MUTED, bg=BORDER, width=width, anchor="w"
+                     ).pack(side=tk.LEFT, padx=4, pady=2)
+        self._rows_frame = tk.Frame(tbl_outer, bg=SURFACE)
+        self._rows_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Regression stats
+        stats = tk.Frame(self, bg=SURFACE)
+        stats.pack(fill=tk.X, padx=20, pady=(0, 6))
+        self._r2_lbl   = tk.Label(stats, text="R²: —",
+                                   font=("Courier New", 9), fg=MUTED, bg=SURFACE)
+        self._r2_lbl.pack(side=tk.LEFT, padx=(10, 16), pady=6)
+        self._slope_lbl = tk.Label(stats, text="slope: —",
+                                    font=("Courier New", 9), fg=MUTED, bg=SURFACE)
+        self._slope_lbl.pack(side=tk.LEFT, padx=(0, 16))
+        self._int_lbl  = tk.Label(stats, text="intercept: —",
+                                   font=("Courier New", 9), fg=MUTED, bg=SURFACE)
+        self._int_lbl.pack(side=tk.LEFT)
+
+        # Buttons
+        btns = tk.Frame(self, bg=BG)
+        btns.pack(fill=tk.X, padx=20, pady=(4, 16))
+        self._apply_btn = tk.Button(btns, text="Apply calibration",
+                                     command=self._apply,
+                                     bg=BLUE, fg=BG, relief=tk.FLAT, padx=12, pady=4,
+                                     activebackground=MUTED, cursor="hand2",
+                                     font=("Helvetica", 9, "bold"), state="disabled")
+        self._apply_btn.pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(btns, text="Clear points", command=self._clear_points,
+                  bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=12, pady=4,
+                  activebackground=MUTED, cursor="hand2").pack(side=tk.LEFT)
+        tk.Button(btns, text="Close", command=self.destroy,
+                  bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=12, pady=4,
+                  activebackground=MUTED, cursor="hand2").pack(side=tk.RIGHT)
+        self._status_lbl = tk.Label(btns, text="", font=("Helvetica", 8, "bold"),
+                                     fg=GREEN, bg=BG)
+        self._status_lbl.pack(side=tk.RIGHT, padx=8)
+
+    def _snapshot(self) -> Optional[float]:
+        with self._app._lock:
+            recent = list(self._app._voltage_buf)[-CAL_AVG_SAMPLES:]
+        if len(recent) < 5:
+            messagebox.showwarning("No data",
+                                   "Wait for readings to appear before capturing.",
+                                   parent=self)
+            return None
+        return float(np.mean(recent))
+
+    def _add_point(self) -> None:
+        try:
+            w = float(self._weight_var.get().strip())
+            if w < 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid weight",
+                                 "Enter a non-negative number for the known weight.",
+                                 parent=self)
+            return
+        v = self._snapshot()
+        if v is None:
+            return
+        self._points.append((w, v))
+        self._capture_lbl.configure(text=f"→  {v:.5f} V", fg=GREEN)
+        self._rebuild_table()
+        self._recompute()
+
+    def _rebuild_table(self) -> None:
+        for widget in self._rows_frame.winfo_children():
+            widget.destroy()
+        unit = self._unit_var.get()
+        for i, (w, v) in enumerate(self._points):
+            row_bg = SURFACE if i % 2 == 0 else BORDER
+            tk.Label(self._rows_frame, text=str(i + 1), font=("Courier New", 9),
+                     fg=MUTED, bg=row_bg, width=4, anchor="w"
+                     ).grid(row=i, column=0, padx=4, pady=1, sticky="w")
+            tk.Label(self._rows_frame, text=f"{w:.4f} {unit}", font=("Courier New", 9),
+                     fg=TEXT, bg=row_bg, width=16, anchor="w"
+                     ).grid(row=i, column=1, padx=4, sticky="w")
+            tk.Label(self._rows_frame, text=f"{v:.6f}", font=("Courier New", 9),
+                     fg=BLUE, bg=row_bg, width=16, anchor="w"
+                     ).grid(row=i, column=2, padx=4, sticky="w")
+            tk.Button(self._rows_frame, text="✕", font=("Helvetica", 8),
+                      bg=row_bg, fg="#f38ba8", relief=tk.FLAT, cursor="hand2",
+                      command=lambda idx=i: self._remove_point(idx)
+                      ).grid(row=i, column=3, padx=4)
+
+    def _remove_point(self, idx: int) -> None:
+        self._points.pop(idx)
+        self._rebuild_table()
+        self._recompute()
+
+    def _recompute(self) -> None:
+        n = len(self._points)
+        if n < 2:
+            self._r2_lbl.configure(
+                text=f"R²: —  ({n} point{'s' if n != 1 else ''})", fg=MUTED)
+            self._slope_lbl.configure(text="slope: —", fg=MUTED)
+            self._int_lbl.configure(text="intercept: —", fg=MUTED)
+            self._slope = self._intercept = None
+            self._apply_btn.configure(state="disabled")
+            return
+        weights_arr  = np.array([p[0] for p in self._points])
+        voltages_arr = np.array([p[1] for p in self._points])
+        coeffs       = np.polyfit(weights_arr, voltages_arr, 1)
+        slope, intercept = float(coeffs[0]), float(coeffs[1])
+        y_pred  = np.polyval(coeffs, weights_arr)
+        ss_res  = float(np.sum((voltages_arr - y_pred) ** 2))
+        ss_tot  = float(np.sum((voltages_arr - np.mean(voltages_arr)) ** 2))
+        r2      = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+        self._slope     = slope
+        self._intercept = intercept
+        unit = self._unit_var.get()
+        r2_color = GREEN if r2 >= 0.99 else (YELLOW if r2 >= 0.95 else "#f38ba8")
+        self._r2_lbl.configure(text=f"R² = {r2:.5f}  ({n} pts)", fg=r2_color)
+        self._slope_lbl.configure(text=f"slope: {slope:.5f} V/{unit}", fg=TEXT)
+        self._int_lbl.configure(text=f"intercept: {intercept:.5f} V", fg=TEXT)
+        self._apply_btn.configure(state="normal")
+
+    def _clear_points(self) -> None:
+        self._points.clear()
+        self._capture_lbl.configure(text="")
+        self._rebuild_table()
+        self._recompute()
+
+    def _apply(self) -> None:
+        if self._slope is None or abs(self._slope) < 1e-10:
+            messagebox.showerror("Cannot apply",
+                                 "Slope is too small or undefined.", parent=self)
+            return
+        cal              = self._app._cal
+        cal.zero_v       = self._intercept        # V at zero load
+        cal.span_v       = self._intercept + self._slope  # V at 1 unit of load
+        cal.known_weight = 1.0
+        cal.unit         = self._unit_var.get()
+        cal.save()
+        self._app._refresh_weight_display()
+        sensitivity = 1.0 / self._slope
+        self._status_lbl.configure(
+            text=f"Applied  ✓  {sensitivity:.4f} {cal.unit}/V  ({len(self._points)} pts)")
+        self.after(4000, lambda: self._status_lbl.configure(text=""))
+
+
 # ── Main application ────────────────────────────────────────────────────────
 
 class App:
@@ -388,6 +595,9 @@ class App:
         tk.Button(hdr, text="Calibrate…", command=self._open_calibration,
                   bg=YELLOW, fg="#1e1e2e", font=("Helvetica", 10, "bold"),
                   relief=tk.FLAT, padx=12, pady=4, cursor="hand2").pack(side=tk.RIGHT)
+        tk.Button(hdr, text="Multi-pt Cal…", command=self._open_multipoint_cal,
+                  bg=GREEN, fg="#1e1e2e", font=("Helvetica", 10, "bold"),
+                  relief=tk.FLAT, padx=12, pady=4, cursor="hand2").pack(side=tk.RIGHT, padx=(0, 6))
         tk.Label(hdr, text=f"REF  {REFERENCE_VOLTAGE} V  on  AO0",
                  font=("Helvetica", 11), fg=GREEN, bg=BG).pack(side=tk.RIGHT, padx=16)
 
@@ -657,6 +867,9 @@ class App:
 
     def _open_calibration(self) -> None:
         CalibrationDialog(self.root, self)
+
+    def _open_multipoint_cal(self) -> None:
+        MultiPointCalibrationDialog(self.root, self)
 
     def _on_graph_unit_change(self) -> None:
         unit = self._graph_unit_var.get()
