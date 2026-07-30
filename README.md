@@ -217,6 +217,20 @@ After clicking **Analyse**:
 
 Supported formats: **PNG** (150 dpi), **PDF**, **SVG**.
 
+### Publication export
+
+**Pub. export…** generates a print-ready, white-background PNG suitable for journal submission.
+
+| Option | Choices |
+|--------|---------|
+| Figure width | Single column (3.5 in), Double column (7.25 in), Custom |
+| Resolution | 300 dpi or 600 dpi |
+| Colour mode | Colour (blue filtered trace, amber/green shading) or Greyscale (hatched dynamic shading for B&W print) |
+| Font size | 7, 8, 9, or 10 pt |
+| Include analysis table | Adds a styled region-statistics table below the signal panel (available when Analyse has been run) |
+
+The figure uses a white background, clean spines (top and right removed), inward tick marks, and a grid consistent with typical journal stylesheet requirements.
+
 ---
 
 ## Configuration

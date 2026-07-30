@@ -273,6 +273,10 @@ class FilterApp:
                   bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=10, pady=3,
                   activebackground=MUTED, cursor="hand2",
                   font=("Helvetica", 9)).pack(side=tk.RIGHT, padx=(4, 0))
+        tk.Button(ctrl, text="Pub. export…", command=self._export_publication,
+                  bg=MAUVE, fg=BG, relief=tk.FLAT, padx=10, pady=3,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 9, "bold")).pack(side=tk.RIGHT, padx=(4, 0))
         tk.Button(ctrl, text="Export image…", command=self._export_image,
                   bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=10, pady=3,
                   activebackground=MUTED, cursor="hand2",
@@ -643,6 +647,328 @@ class FilterApp:
             messagebox.showerror("Export failed", str(exc))
         finally:
             plt.close(fig)
+
+    def _export_publication(self) -> None:
+        """Open publication export options, then call _do_pub_export."""
+        if self._filtered is None or self._time is None:
+            messagebox.showinfo("No data", "Apply a filter first.")
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Publication Export")
+        dlg.configure(bg=BG)
+        dlg.geometry("430x310")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Publication Export Settings",
+                 font=("Helvetica", 12, "bold"), fg=TEXT, bg=BG).pack(pady=(14, 2))
+        tk.Label(dlg, text="White background · print-ready PNG",
+                 font=("Helvetica", 8), fg=MUTED, bg=BG).pack(pady=(0, 8))
+
+        grid = tk.Frame(dlg, bg=SURFACE)
+        grid.pack(fill=tk.X, padx=20)
+
+        def _row(label, row):
+            tk.Label(grid, text=label, font=("Helvetica", 9), fg=TEXT, bg=SURFACE,
+                     anchor="w", width=14).grid(row=row, column=0,
+                                                sticky="w", padx=(10, 4), pady=5)
+
+        def _rbframe(row):
+            f = tk.Frame(grid, bg=SURFACE)
+            f.grid(row=row, column=1, sticky="w", pady=5, padx=(0, 10))
+            return f
+
+        def _rb(parent, text, var, value):
+            tk.Radiobutton(parent, text=text, variable=var, value=value,
+                           bg=SURFACE, fg=TEXT, selectcolor=BORDER,
+                           activebackground=SURFACE,
+                           font=("Helvetica", 8)).pack(side=tk.LEFT, padx=(0, 8))
+
+        # Figure width
+        _row("Figure width:", 0)
+        width_var = tk.StringVar(value="double")
+        wf = _rbframe(0)
+        _rb(wf, 'Single col (3.5")', width_var, "single")
+        _rb(wf, 'Double col (7.25")', width_var, "double")
+        _rb(wf, "Custom:", width_var, "custom")
+        custom_w_var = tk.StringVar(value="5.0")
+        tk.Entry(wf, textvariable=custom_w_var, width=5,
+                 bg=BORDER, fg=TEXT, insertbackground=TEXT,
+                 relief=tk.FLAT, font=("Courier New", 9)).pack(side=tk.LEFT)
+        tk.Label(wf, text=" in", font=("Helvetica", 8),
+                 fg=MUTED, bg=SURFACE).pack(side=tk.LEFT)
+
+        # DPI
+        _row("Resolution:", 1)
+        dpi_var = tk.StringVar(value="300")
+        df = _rbframe(1)
+        for v in ("300", "600"):
+            _rb(df, f"{v} dpi", dpi_var, v)
+
+        # Colour mode
+        _row("Colour mode:", 2)
+        color_var = tk.StringVar(value="color")
+        cf = _rbframe(2)
+        _rb(cf, "Colour",     color_var, "color")
+        _rb(cf, "Greyscale",  color_var, "grey")
+
+        # Font size
+        _row("Font size:", 3)
+        font_var = tk.StringVar(value="8")
+        ff = _rbframe(3)
+        for v in ("7", "8", "9", "10"):
+            _rb(ff, f"{v} pt", font_var, v)
+
+        # Analysis table checkbox (only shown when analysis exists)
+        table_var = tk.BooleanVar(value=bool(self._last_analysis))
+        if self._last_analysis:
+            tk.Checkbutton(dlg, text="Include analysis table",
+                           variable=table_var,
+                           bg=BG, fg=TEXT, selectcolor=BORDER,
+                           activebackground=BG,
+                           font=("Helvetica", 8)).pack(anchor="w", padx=24, pady=(6, 0))
+
+        def _do() -> None:
+            wmap = {"single": 3.5, "double": 7.25}
+            sel  = width_var.get()
+            if sel in wmap:
+                fig_w = wmap[sel]
+            else:
+                try:
+                    fig_w = float(custom_w_var.get())
+                    if fig_w <= 0:
+                        raise ValueError
+                except ValueError:
+                    messagebox.showerror("Invalid width",
+                                         "Enter a positive number for width.",
+                                         parent=dlg)
+                    return
+            opts = {
+                "width":         fig_w,
+                "dpi":           int(dpi_var.get()),
+                "color_mode":    color_var.get(),
+                "font_size":     int(font_var.get()),
+                "include_table": table_var.get() if self._last_analysis else False,
+            }
+            dlg.destroy()
+            self._do_pub_export(opts)
+
+        btns = tk.Frame(dlg, bg=BG)
+        btns.pack(fill=tk.X, padx=20, pady=(10, 16))
+        tk.Button(btns, text="Export PNG…", command=_do,
+                  bg=MAUVE, fg=BG, relief=tk.FLAT, padx=14, pady=4,
+                  activebackground=MUTED, cursor="hand2",
+                  font=("Helvetica", 9, "bold")).pack(side=tk.LEFT)
+        tk.Button(btns, text="Cancel", command=dlg.destroy,
+                  bg=BORDER, fg=TEXT, relief=tk.FLAT, padx=12, pady=4,
+                  activebackground=MUTED, cursor="hand2").pack(side=tk.LEFT, padx=(8, 0))
+
+    def _do_pub_export(self, opts: dict) -> None:
+        """Build and save a publication-quality white-background figure."""
+        import matplotlib as mpl
+
+        fig_width     = opts["width"]
+        dpi           = opts["dpi"]
+        greyscale     = opts["color_mode"] == "grey"
+        font_size     = opts["font_size"]
+        has_table     = opts["include_table"] and bool(self._last_analysis)
+        col_name      = self._col_var.get()
+
+        stem    = pathlib.Path(self._file_path).stem if self._file_path else "signal"
+        default = f"{stem}_pub.png"
+        path    = filedialog.asksaveasfilename(
+            title="Save publication figure",
+            defaultextension=".png",
+            initialfile=default,
+            filetypes=[("PNG image", "*.png"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+
+        # Colour palette (colour vs greyscale)
+        if greyscale:
+            c_orig    = "#AAAAAA"
+            c_filt    = "#000000"
+            c_dyn_bg  = "#DDDDDD"
+            c_qs_bg   = None       # no fill; white background distinguishes from hatched
+            c_dyn_lbl = "#444444"
+            c_qs_lbl  = "#444444"
+            c_dyn_tbl = "#DDDDDD"
+            c_qs_tbl  = "#F5F5F5"
+            c_hdr_tbl = "#333333"
+        else:
+            c_orig    = "#AAAAAA"
+            c_filt    = "#1565C0"   # dark blue
+            c_dyn_bg  = "#FFF3CD"   # light amber
+            c_qs_bg   = "#E8F5E9"   # light green
+            c_dyn_lbl = "#B8860B"   # dark goldenrod
+            c_qs_lbl  = "#2E7D32"   # dark green
+            c_dyn_tbl = "#FFF3CD"
+            c_qs_tbl  = "#E8F5E9"
+            c_hdr_tbl = "#1565C0"
+
+        # Figure height: signal panel is 0.6 × width; table appended below
+        sig_h = fig_width * 0.60
+        if has_table:
+            tbl_h = max(1.2, len(self._last_analysis) * 0.22 + 0.6)
+            fig_h = sig_h + tbl_h + 0.4
+        else:
+            fig_h = sig_h
+
+        rc = {
+            "font.size":            font_size,
+            "axes.labelsize":       font_size,
+            "xtick.labelsize":      font_size - 1,
+            "ytick.labelsize":      font_size - 1,
+            "legend.fontsize":      font_size - 1,
+            "axes.titlesize":       font_size,
+            "font.family":          "sans-serif",
+            "axes.linewidth":       0.7,
+            "grid.linewidth":       0.4,
+            "grid.color":           "#CCCCCC",
+            "grid.alpha":           1.0,
+            "axes.grid":            True,
+            "lines.linewidth":      1.2,
+            "xtick.direction":      "in",
+            "ytick.direction":      "in",
+            "xtick.major.size":     3.0,
+            "ytick.major.size":     3.0,
+            "legend.framealpha":    1.0,
+            "legend.edgecolor":     "#CCCCCC",
+            "figure.facecolor":     "white",
+            "axes.facecolor":       "white",
+            "text.color":           "black",
+            "axes.labelcolor":      "black",
+            "xtick.color":          "black",
+            "ytick.color":          "black",
+        }
+
+        with mpl.rc_context(rc):
+            if has_table:
+                fig = plt.figure(figsize=(fig_width, fig_h), facecolor="white")
+                gs  = fig.add_gridspec(2, 1,
+                                       height_ratios=[sig_h, tbl_h],
+                                       hspace=0.5)
+                ax_sig = fig.add_subplot(gs[0])
+                ax_tbl = fig.add_subplot(gs[1])
+            else:
+                fig    = plt.figure(figsize=(fig_width, fig_h), facecolor="white")
+                ax_sig = fig.add_subplot(111)
+                ax_tbl = None
+
+            # ── Signal panel ─────────────────────────────────────────────
+            ax_sig.set_facecolor("white")
+            ax_sig.spines["top"].set_visible(False)
+            ax_sig.spines["right"].set_visible(False)
+            for side in ("bottom", "left"):
+                ax_sig.spines[side].set_linewidth(0.7)
+                ax_sig.spines[side].set_color("black")
+            ax_sig.set_xlabel("Time (s)", color="black")
+            ax_sig.set_ylabel(col_name, color="black")
+
+            if self._plot_input is not None:
+                ax_sig.plot(self._time, self._plot_input,
+                            color=c_orig, linewidth=0.8,
+                            linestyle="--" if greyscale else "-",
+                            alpha=0.7, label="Original")
+            ax_sig.plot(self._time, self._filtered,
+                        color=c_filt, linewidth=1.2, label="Filtered")
+
+            # Region shading and labels
+            for r in self._last_analysis:
+                is_dyn = r["type"] == "dynamic"
+                ax_sig.axvspan(
+                    r["t_start"], r["t_end"],
+                    facecolor=c_dyn_bg if is_dyn else (c_qs_bg or "none"),
+                    hatch="////" if (greyscale and is_dyn) else "",
+                    edgecolor="#888888" if (greyscale and is_dyn) else "none",
+                    alpha=0.55, linewidth=0.0, zorder=0)
+                mid_t = (r["t_start"] + r["t_end"]) / 2.0
+                lbl   = ("D" if is_dyn else "QS") + f"\nμ={r['mean']:.3f}"
+                ax_sig.text(mid_t, 0.97, lbl,
+                            color=c_dyn_lbl if is_dyn else c_qs_lbl,
+                            fontsize=max(5, font_size - 2),
+                            ha="center", va="top",
+                            transform=ax_sig.get_xaxis_transform())
+
+            # Title with filter settings
+            btype  = self._type_var.get()
+            order  = self._order_var.get()
+            fc1    = self._fc1_var.get()
+            fc_str = (f"{fc1:.2f} – {self._fc2_var.get():.2f} Hz"
+                      if btype in ("Band-pass", "Band-stop") else f"{fc1:.2f} Hz")
+            try:
+                offset = float(self._offset_var.get())
+            except ValueError:
+                offset = 0.0
+            offset_str = f"  |  offset {offset:+.4g} {col_name}" if offset != 0.0 else ""
+            ax_sig.set_title(
+                f"{pathlib.Path(self._file_path).name}   ·   {col_name}\n"
+                f"{btype}  |  order {order}  |  fc = {fc_str}"
+                f"  |  fs ≈ {self._fs:.1f} Hz{offset_str}",
+                color="black", pad=6)
+            ax_sig.legend(framealpha=1.0, edgecolor="#CCCCCC")
+            ax_sig.autoscale_view()
+
+            # ── Analysis table panel ──────────────────────────────────────
+            if ax_tbl is not None and has_table:
+                ax_tbl.set_facecolor("white")
+                ax_tbl.axis("off")
+                col_labels = ["#", "Type", "t-start (s)", "t-end (s)",
+                              "Dur (s)", "Max", "Min", "Mean", "Std Dev", "Pk-Pk"]
+                cell_data: list[list[str]] = []
+                row_cols:  list[list[str]] = []
+                for i, r in enumerate(self._last_analysis, start=1):
+                    label = "Dynamic" if r["type"] == "dynamic" else "Quasi-static"
+                    cell_data.append([
+                        str(i), label,
+                        f"{r['t_start']:.3f}", f"{r['t_end']:.3f}",
+                        f"{r['duration']:.3f}",
+                        f"{r['max']:.4f}", f"{r['min']:.4f}",
+                        f"{r['mean']:.4f}", f"{r['std']:.4f}",
+                        f"{r['peak_pk']:.4f}",
+                    ])
+                    c = c_dyn_tbl if r["type"] == "dynamic" else c_qs_tbl
+                    row_cols.append([c] * len(col_labels))
+
+                tbl = ax_tbl.table(cellText=cell_data, colLabels=col_labels,
+                                   cellLoc="center", loc="center")
+                tbl.auto_set_font_size(False)
+                tbl.set_fontsize(font_size - 1)
+                tbl.scale(1, 1.5)
+                for (ri, ci), cell in tbl.get_celld().items():
+                    cell.set_edgecolor("#AAAAAA")
+                    cell.set_linewidth(0.5)
+                    if ri == 0:
+                        cell.set_facecolor(c_hdr_tbl)
+                        cell.set_text_props(color="white", fontweight="bold")
+                    else:
+                        cell.set_facecolor(row_cols[ri - 1][ci])
+                        cell.set_text_props(color="black")
+
+                dyn = [r for r in self._last_analysis if r["type"] == "dynamic"]
+                qs  = [r for r in self._last_analysis if r["type"] == "quasi-static"]
+                ax_tbl.text(
+                    0.5, -0.05,
+                    f"Dynamic: {len(dyn)} region(s), "
+                    f"{sum(r['duration'] for r in dyn):.3f} s   |   "
+                    f"Quasi-static: {len(qs)} region(s), "
+                    f"{sum(r['duration'] for r in qs):.3f} s",
+                    transform=ax_tbl.transAxes, color="black",
+                    fontsize=font_size - 1, ha="center", va="top")
+
+            fig.tight_layout()
+            try:
+                fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
+                self._status_var.set(
+                    f"Publication figure saved  →  {pathlib.Path(path).name}"
+                    f"  ({fig_width:.2f}\" × {fig_h:.2f}\"  @  {dpi} dpi)")
+            except Exception as exc:
+                messagebox.showerror("Export failed", str(exc))
+            finally:
+                plt.close(fig)
 
     def _show_metrics_help(self) -> None:
         win = tk.Toplevel(self.root)
