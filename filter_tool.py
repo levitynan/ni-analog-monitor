@@ -912,6 +912,29 @@ class FilterApp:
             ax_sig.legend(framealpha=1.0, edgecolor="#CCCCCC")
             ax_sig.autoscale_view()
 
+            # ── Analysis summary line ─────────────────────────────────────
+            if self._last_analysis:
+                dyn_r = [r for r in self._last_analysis if r["type"] == "dynamic"]
+                qs_r  = [r for r in self._last_analysis if r["type"] == "quasi-static"]
+                sig_mean = float(np.mean(self._filtered))
+                sig_std  = float(np.std(self._filtered))
+                sig_ppk  = float(np.max(self._filtered) - np.min(self._filtered))
+                summary = (
+                    f"Dynamic: {len(dyn_r)} region(s), "
+                    f"{sum(r['duration'] for r in dyn_r):.3f} s"
+                    f"   ·   "
+                    f"Quasi-static: {len(qs_r)} region(s), "
+                    f"{sum(r['duration'] for r in qs_r):.3f} s"
+                    f"   ·   "
+                    f"Signal  mean={sig_mean:.4f}  std={sig_std:.4f}  pk-pk={sig_ppk:.4f} {col_name}"
+                )
+                ax_sig.annotate(
+                    summary,
+                    xy=(0.5, -0.22), xycoords="axes fraction",
+                    ha="center", va="top",
+                    fontsize=max(5, font_size - 2),
+                    color="#444444", style="italic")
+
             # ── Analysis table panel ──────────────────────────────────────
             if ax_tbl is not None and has_table:
                 ax_tbl.set_facecolor("white")
